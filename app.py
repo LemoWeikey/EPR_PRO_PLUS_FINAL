@@ -487,8 +487,8 @@ if user_input and chatbot_core:
     # Add user message to chat
     st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # Get chat history
-    chat_history = chatbot_core.get_full_chat_history(max_exchanges=5)
+    # Get chat history (reduced to 3 exchanges to prevent context overflow)
+    chat_history = chatbot_core.get_full_chat_history(max_exchanges=3)
 
     # Display user message immediately
     with st.container():

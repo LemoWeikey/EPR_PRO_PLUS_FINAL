@@ -45,6 +45,7 @@ except:
     from langchain_community.query_constructors.chroma import ChromaTranslator
 
 import uuid
+import tiktoken
 
 print("✓ All imports successful!")
 
@@ -53,6 +54,40 @@ from langchain_openai import OpenAIEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 import uuid
+
+# ========== TOKEN COUNTING UTILITIES ==========
+
+def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
+    """Count the number of tokens in a text string"""
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+        return len(encoding.encode(text))
+    except Exception as e:
+        print(f"  ⚠️ Error counting tokens: {e}")
+        # Rough estimation: ~4 characters per token
+        return len(text) // 4
+
+def truncate_text(text: str, max_tokens: int = 1000, model: str = "gpt-3.5-turbo") -> str:
+    """Truncate text to fit within max_tokens"""
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+        tokens = encoding.encode(text)
+
+        if len(tokens) <= max_tokens:
+            return text
+
+        # Truncate and decode back to text
+        truncated_tokens = tokens[:max_tokens]
+        return encoding.decode(truncated_tokens) + "..."
+    except Exception as e:
+        print(f"  ⚠️ Error truncating text: {e}")
+        # Rough fallback: character-based truncation
+        max_chars = max_tokens * 4
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars] + "..."
+
+print("✓ Token counting utilities loaded")
 
 # ========== CONFIGURATION ==========
 
@@ -2073,13 +2108,26 @@ prompt = ChatPromptTemplate.from_template(prompt_template)
 llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0)
 
 
-def format_docs(docs):
-    """Format documents with metadata for LLM context"""
+def format_docs(docs, max_docs: int = 5, max_tokens_per_doc: int = 800):
+    """
+    Format documents with metadata for LLM context with token limits
+
+    Args:
+        docs: List of documents to format
+        max_docs: Maximum number of documents to include (default: 5)
+        max_tokens_per_doc: Maximum tokens per document content (default: 800)
+
+    Returns:
+        Formatted string with document content
+    """
     if not docs:
         return "Không có tài liệu liên quan."
 
+    # Limit number of documents
+    docs_to_use = docs[:max_docs]
+
     formatted_parts = []
-    for i, doc in enumerate(docs, 1):
+    for i, doc in enumerate(docs_to_use, 1):
         metadata = doc.metadata
 
         # Build citation label from metadata
@@ -2097,6 +2145,9 @@ def format_docs(docs):
         else:
             citation = f"Tài liệu {i}"
 
+        # Truncate document content to fit token limit
+        content = truncate_text(doc.page_content, max_tokens=max_tokens_per_doc)
+
         # Include metadata in the formatted output
         doc_with_meta = f"""[{citation}]
 Tên Điều: {metadata.get('Dieu_Name', 'N/A')}
@@ -2104,7 +2155,7 @@ Tên Chương: {metadata.get('Chuong_Name', 'N/A')}
 Tên Mục: {metadata.get('Muc_Name', 'N/A')}
 
 Nội dung:
-{doc.page_content}
+{content}
 """
         formatted_parts.append(doc_with_meta)
 
@@ -2699,13 +2750,14 @@ print("✅ Workflow compiled successfully!")
 
 
 
-def get_full_chat_history(max_exchanges=5):
+def get_full_chat_history(max_exchanges=3):
     """
     Get recent chat history from memory
 
     Args:
-        max_exchanges: Number of recent conversation pairs to keep (default: 5)
+        max_exchanges: Number of recent conversation pairs to keep (default: 3)
         Each exchange = 1 user message + 1 assistant message = 2 messages total
+        Reduced from 5 to 3 to prevent context overflow
 
     Returns:
         Formatted chat history string
@@ -2724,11 +2776,16 @@ def get_full_chat_history(max_exchanges=5):
                     if hasattr(msg, 'type'):
                         role = "User" if msg.type == "human" else "Assistant"
                         content = msg.content
+                        # Truncate individual messages to prevent overflow
+                        content = truncate_text(content, max_tokens=500)
                         formatted.append(f"{role}: {content}")
                     else:
                         formatted.append(str(msg))
 
-                return "\n".join(formatted)
+                chat_history = "\n".join(formatted)
+
+                # Ensure total chat history doesn't exceed limit
+                return truncate_text(chat_history, max_tokens=2000)
     except Exception as e:
         print(f"  ⚠️ Error loading history: {e}")
     return ""
@@ -2963,11 +3020,17 @@ async def generate_answer_streaming(query: str, documents: list, source_type: st
         yield "Xin lỗi, tôi không tìm thấy thông tin phù hợp. Bạn có thể hỏi chi tiết hơn không?"
         return
 
+    # GPT-3.5-turbo context limit
+    MAX_CONTEXT_TOKENS = 15000  # Leave buffer for response
+
     # Create appropriate prompt based on source
     if source_type == "faq":
         doc = documents[0]
         faq_question = doc.metadata.get("Câu_hỏi", "")
         faq_answer = doc.page_content
+
+        # Truncate FAQ answer if too long
+        faq_answer = truncate_text(faq_answer, max_tokens=2000)
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", """Bạn là trợ lý AI chuyên về luật EPR Việt Nam.
@@ -2991,7 +3054,27 @@ Trả lời:""")
                 yield chunk.content
 
     else:  # legal documents
-        context = format_docs(documents)
+        # Limit documents to prevent context overflow
+        # Max 4 documents, each with max 1000 tokens
+        context = format_docs(documents, max_docs=4, max_tokens_per_doc=1000)
+
+        # Verify total context size
+        context_tokens = count_tokens(context)
+        query_tokens = count_tokens(query)
+        system_prompt_tokens = 100  # Rough estimate
+
+        total_input_tokens = context_tokens + query_tokens + system_prompt_tokens
+
+        print(f"   📊 Context size: {context_tokens} tokens")
+        print(f"   📊 Query size: {query_tokens} tokens")
+        print(f"   📊 Total input: {total_input_tokens} tokens")
+
+        if total_input_tokens > MAX_CONTEXT_TOKENS:
+            print(f"   ⚠️ Context too large ({total_input_tokens} tokens), further reducing...")
+            # Further reduce if still too large
+            context = format_docs(documents, max_docs=3, max_tokens_per_doc=600)
+            context_tokens = count_tokens(context)
+            print(f"   ✅ Reduced to {context_tokens} tokens")
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", """Bạn là trợ lý AI chuyên về pháp luật EPR Việt Nam.

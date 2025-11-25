@@ -31,5 +31,5 @@ tqdm>=4.66.0
 tiktoken>=0.7,<1
 
 # New features
-fpdf==1.7.2
+fpdf2==2.7.9
 gTTS==2.5.1

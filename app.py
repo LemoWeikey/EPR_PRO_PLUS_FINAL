@@ -395,52 +395,48 @@ def text_to_speech(text):
         st.warning(f"TTS Error: {e}")
         return None
 
-from fpdf.enums import XPos, YPos
-
 def create_pdf(chat_history):
     """Generate PDF from chat history"""
     pdf = FPDF()
     pdf.add_page()
     
-    # Add Unicode font
-    font_family = "Helvetica" # Default fallback
-    font_path = "/Users/jamesgatsby/EPR_PRO_CHATBOT_FIX/DejaVuSans.ttf"
-    
-    try:
-        if os.path.exists(font_path):
-            pdf.add_font('DejaVu', '', font_path)
-            font_family = "DejaVu"
-        else:
-            st.warning(f"Font file not found at: {font_path}")
-    except Exception as e:
-        st.error(f"Font loading error: {e}")
+    # Add Unicode font - use Helvetica as default (works everywhere)
+    font_family = "Helvetica"
     
     # Header
     pdf.set_font(font_family, '', 16)
-    pdf.cell(200, 10, text="EPR Legal Assistant - Chat Export", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
+    pdf.cell(200, 10, text="EPR Legal Assistant - Chat Export", align='C')
     pdf.ln(10)
     
     pdf.set_font(font_family, '', 12)
     
     for msg in chat_history:
-        role = "User" if msg["role"] == "user" else "Assistant"
+        role = "Nguoi dung" if msg["role"] == "user" else "Tro ly"
         content = msg["content"]
         
-        # Clean up content
+        # Clean up content - remove emojis and special characters
         content = content.replace("🌱", "").replace("✅", "").replace("⚠️", "")
+        content = content.replace("🌿", "").replace("🌍", "").replace("♻️", "")
+        content = content.replace("📜", "").replace("🏭", "").replace("👤", "")
+        content = content.replace("📚", "").replace("📄", "").replace("🎤", "")
+        content = content.replace("🗣️", "").replace("▌", "")
         
-        # Safety fallback for Helvetica (standard font doesn't support Unicode)
-        if font_family == "Helvetica":
+        # Safety fallback for Helvetica (standard font doesn't support Unicode well)
+        try:
             content = content.encode('latin-1', 'replace').decode('latin-1')
+        except:
+            content = content.encode('ascii', 'ignore').decode('ascii')
         
         # Role
-        pdf.set_font(font_family, '', 12)
-        pdf.set_text_color(30, 58, 138) # Deep Blue
-        pdf.cell(0, 10, text=f"{role}:", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font(font_family, 'B', 12)
+        pdf.set_text_color(4, 120, 87) # Forest Green
+        pdf.cell(0, 10, text=f"{role}:")
+        pdf.ln()
         
         # Content
+        pdf.set_font(font_family, '', 11)
         pdf.set_text_color(0, 0, 0) # Black
-        pdf.multi_cell(0, 10, text=content)
+        pdf.multi_cell(0, 8, text=content)
             
         pdf.ln(5)
         

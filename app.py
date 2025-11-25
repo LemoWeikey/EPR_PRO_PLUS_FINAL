@@ -333,6 +333,30 @@ st.markdown("""
         border-radius: 0.75rem;
     }
 
+    /* Loading Spinner Animation */
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    
+    .loading-spinner {
+        display: inline-block;
+        animation: spin 1s linear infinite;
+    }
+    
+    .status-message {
+        background: rgba(240, 253, 244, 0.8);
+        backdrop-filter: blur(10px);
+        padding: 1rem 1.5rem;
+        border-radius: 1rem;
+        border-left: 4px solid #10b981;
+        color: #047857;
+        font-weight: 600;
+        display: inline-block;
+        margin: 1rem 0;
+        box-shadow: 0 4px 16px rgba(4, 120, 87, 0.1);
+    }
+
     /* Scrollbar */
     ::-webkit-scrollbar {
         width: 10px;
@@ -705,13 +729,21 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         # Async Loop
         async def run_chat():
             # Show "Thinking" status
-            status_placeholder.markdown("`🌿 Đang phân tích tài liệu pháp lý...`")
+            status_placeholder.markdown("""
+            <div class="status-message">
+                <span class="loading-spinner">🔄</span> Đang phân tích tài liệu pháp lý...
+            </div>
+            """, unsafe_allow_html=True)
             
             async for update in chatbot_core.optimized_chatbot_pipeline(last_user_msg, chat_history):
                 update_type = update.get('type')
                 
                 if update_type == 'status':
-                    status_placeholder.markdown(f"`{update.get('message')}`")
+                    status_placeholder.markdown(f"""
+                    <div class="status-message">
+                        <span class="loading-spinner">🔄</span> {update.get('message')}
+                    </div>
+                    """, unsafe_allow_html=True)
                     
                 elif update_type == 'response_chunk':
                     chunk = update.get('chunk', '')
